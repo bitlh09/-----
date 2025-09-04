@@ -15,6 +15,12 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(ROOT, 'index.html'));
 });
 
+// 提供所有静态文件
+app.use(express.static(ROOT, {
+  index: false,
+  dotfiles: 'ignore',
+}));
+
 // 只开放 downloads 子目录，避免暴露 server.js / package.json
 app.use('/resources', express.static(DOWNLOADS_DIR, {
   index: false,

@@ -231,6 +231,31 @@ print("训练完成！")
                                             <option value="pyodide">Pyodide实际执行</option>
                                         </select>
                                     </div>
+                                    
+                                    <!-- Pyodide状态显示 -->
+                                    <div id="pyodide-status" class="bg-purple-50 p-3 rounded border-l-4 border-purple-400 hidden">
+                                        <div class="flex">
+                                            <div class="flex-shrink-0">
+                                                <svg class="h-4 w-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"></path>
+                                                </svg>
+                                            </div>
+                                            <div class="ml-3">
+                                                <p class="text-sm text-purple-700">
+                                                    <strong>Pyodide 模式:</strong> 真实Python环境，支持NumPy、Matplotlib等库
+                                                </p>
+                                                <p class="text-xs text-purple-600 mt-1">
+                                                    首次加载需要10-30秒，请耐心等待
+                                                </p>
+                                                <div id="pyodide-loading" class="mt-2 hidden">
+                                                    <div class="flex items-center">
+                                                        <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600"></div>
+                                                        <span class="ml-2 text-xs text-purple-600">正在加载...</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div id="cora-dataset-info" class="bg-blue-50 p-3 rounded border-l-4 border-blue-400 hidden">
                                         <div class="flex">
                                             <div class="flex-shrink-0">
@@ -521,6 +546,7 @@ print(f"最终注意力权重形状: {att1.shape}")
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
     
     <!-- 引入本地JavaScript文件 -->
     <script src="js/main.js"></script>

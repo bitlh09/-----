@@ -1,21 +1,5 @@
 // 教程交互功能模块
 
-// 教程页：最小代码运行按钮（展示示例输出）
-function runGCNCode() {
-    var out = document.getElementById('gcn-output');
-    if (out) out.classList.remove('hidden');
-}
-
-function runGATCode() {
-    var out = document.getElementById('gat-output');
-    if (out) out.classList.remove('hidden');
-}
-
-function runGraphSAGECode() {
-    var out = document.getElementById('graphsage-output');
-    if (out) out.classList.remove('hidden');
-}
-
 // 微博问答检查
 function checkWeiboAnswer() {
     var selected = document.querySelector('input[name="weibo-graph"]:checked');
@@ -964,9 +948,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // 导出函数
-window.runGCNCode = runGCNCode;
-window.runGATCode = runGATCode;
-window.runGraphSAGECode = runGraphSAGECode;
 window.checkWeiboAnswer = checkWeiboAnswer;
 window.switchExecMode = switchExecMode;
 window.initHomeGraphDemo = initHomeGraphDemo;

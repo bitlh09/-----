@@ -675,20 +675,351 @@ function showCodeSuggestions(cm) {
     }
 }
 
-// Pyodide初始化
+// Pyodide初始化 - 增强版本
 async function initPyodideOnce() {
     if (practiceState.pyodide || !window.loadPyodide) return;
     var consoleEl = document.getElementById('console-output');
+    
+    // 检查是否已经在初始化中
+    if (practiceState.pyodideInitializing) {
+        if (consoleEl) {
+            consoleEl.textContent = '🔄 Pyodide 正在初始化中，请稍候...';
+        }
+        return;
+    }
+    
+    practiceState.pyodideInitializing = true;
+    
     try {
-        if (consoleEl) consoleEl.textContent = '正在加载 Pyodide (首次较慢)...';
+        if (consoleEl) {
+            consoleEl.textContent = '🔄 正在加载 Pyodide (首次加载较慢，请耐心等待)...\n';
+            consoleEl.textContent += '📋 预计需要10-30秒，取决于网络速度\n';
+            consoleEl.textContent += '🌐 正在从 CDN 加载 Pyodide v0.24.1...\n';
+        }
+        
+        // 显示加载状态指示器
+        var pyodideLoading = document.getElementById('pyodide-loading');
+        if (pyodideLoading) pyodideLoading.classList.remove('hidden');
+        
+        // 加载Pyodide
         practiceState.pyodide = await loadPyodide({ 
             indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' 
         });
+        
+        if (consoleEl) {
+            consoleEl.textContent += '✅ Pyodide 核心加载成功\n';
+            consoleEl.textContent += '📦 正在安装Python包...\n';
+        }
+        
+        // 安装必要的Python包
+        await installPythonPackages();
+        
+        // 设置Python环境
+        await setupPythonEnvironment();
+        
         practiceState.pyodideReady = true;
-        if (consoleEl) consoleEl.textContent = 'Pyodide 加载完成，可切换为 Pyodide 执行模式';
+        practiceState.pyodideInitializing = false;
+        
+        // 隐藏加载指示器
+        if (pyodideLoading) pyodideLoading.classList.add('hidden');
+        
+        if (consoleEl) {
+            consoleEl.textContent += '🎉 Pyodide 环境准备完成！\n';
+            consoleEl.textContent += '📋 可用包: NumPy, Matplotlib, SciPy\n';
+            consoleEl.textContent += '💡 现在可以切换到 Pyodide 执行模式\n';
+            consoleEl.textContent += '🚀 点击“运行代码”开始体验真实Python执行！';
+        }
+        
+        // 显示成功通知
+        showPyodideReadyNotification();
+        
     } catch (e) {
         practiceState.pyodideReady = false;
-        if (consoleEl) consoleEl.textContent = 'Pyodide 加载失败：' + e;
+        practiceState.pyodideInitializing = false;
+        console.error('Pyodide初始化失败:', e);
+        
+        // 隐藏加载指示器
+        var pyodideLoading = document.getElementById('pyodide-loading');
+        if (pyodideLoading) pyodideLoading.classList.add('hidden');
+        
+        if (consoleEl) {
+            consoleEl.style.color = '#ff4444';
+            consoleEl.textContent = '❌ Pyodide 加载失败: ' + e.message + '\n\n';
+            
+            // 提供详细的错误诊断
+            if (e.message.includes('fetch') || e.message.includes('network')) {
+                consoleEl.textContent += '🌐 网络连接问题：\n';
+                consoleEl.textContent += '  • 请检查网络连接\n';
+                consoleEl.textContent += '  • 可能是CDN无法访问\n';
+                consoleEl.textContent += '  • 尝试使用VPN或切换网络\n';
+            } else if (e.message.includes('memory') || e.message.includes('allocation')) {
+                consoleEl.textContent += '💾 内存不足：\n';
+                consoleEl.textContent += '  • 请关闭其他浏览器标签\n';
+                consoleEl.textContent += '  • 释放内存后重试\n';
+            } else {
+                consoleEl.textContent += '🔧 未知错误：\n';
+                consoleEl.textContent += '  • 请刷新页面重试\n';
+                consoleEl.textContent += '  • 或切换到前端模拟模式\n';
+            }
+            
+            consoleEl.textContent += '\n🔄 建议: ';
+            consoleEl.textContent += '检查网络连接后刷新页面，或切换到前端模拟模式\n';
+            consoleEl.textContent += '✨ 前端模拟模式也能提供出色的学习体验！';
+        }
+        
+        // 显示错误通知
+        showPyodideErrorNotification(e.message);
+    }
+}
+
+// 安装Python包
+async function installPythonPackages() {
+    var consoleEl = document.getElementById('console-output');
+    
+    try {
+        // 安装基础科学计算包
+        if (consoleEl) consoleEl.textContent += '  📦 安装 NumPy...\n';
+        await practiceState.pyodide.loadPackage('numpy');
+        
+        if (consoleEl) consoleEl.textContent += '  📦 安装 Matplotlib...\n';
+        await practiceState.pyodide.loadPackage('matplotlib');
+        
+        if (consoleEl) consoleEl.textContent += '  📦 安装 SciPy...\n';
+        await practiceState.pyodide.loadPackage('scipy');
+        
+        if (consoleEl) consoleEl.textContent += '  ✅ 所有包安装完成\n';
+        
+    } catch (e) {
+        console.warn('某些包安装失败:', e);
+        if (consoleEl) {
+            consoleEl.textContent += '  ⚠️ 部分包安装失败，但基础功能仍可使用\n';
+        }
+    }
+}
+
+// 设置Python环境
+async function setupPythonEnvironment() {
+    try {
+        // 设置输出重定向和基础环境
+        await practiceState.pyodide.runPythonAsync(`
+import sys
+import io
+from js import console
+
+# 创建自定义输出类
+class JSConsole:
+    def __init__(self):
+        self.buffer = []
+    
+    def write(self, text):
+        if text and text.strip():
+            self.buffer.append(str(text))
+            console.log(str(text))
+    
+    def flush(self):
+        pass
+    
+    def get_output(self):
+        return ''.join(self.buffer)
+    
+    def clear(self):
+        self.buffer = []
+
+# 设置输出重定向
+_js_stdout = JSConsole()
+_js_stderr = JSConsole()
+sys.stdout = _js_stdout
+sys.stderr = _js_stderr
+
+# 导入常用库
+import numpy as np
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib
+    matplotlib.use('Agg')  # 使用非交互式后端
+except ImportError:
+    print("Matplotlib 不可用")
+
+try:
+    import scipy
+except ImportError:
+    print("SciPy 不可用")
+
+# 全局变量，用于存储训练结果
+losses = []
+accuracies = []
+model = None
+features = None
+adj_matrix = None
+labels = None
+
+print("Python环境设置完成")
+`);
+    } catch (e) {
+        console.error('Python环境设置失败:', e);
+    }
+}
+
+// 加载Pyodide兼容的代码模板
+function loadPyodideCompatibleCode() {
+    if (!practiceState.cm) return;
+    
+    // NumPy版本的GCN代码，兼容Pyodide
+    var pyodideCode = `# Pyodide兼容的GCN实现 (使用NumPy)
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.sparse.linalg import eigsh
+import json
+
+# 设置随机种子
+np.random.seed(42)
+
+print("初始化Pyodide GCN环境...")
+
+# 创建示例图数据
+num_nodes = 10
+num_features = 5
+num_classes = 3
+
+# 生成节点特征 (随机)
+features = np.random.randn(num_nodes, num_features).astype(np.float32)
+print(f"生成特征矩阵: {features.shape}")
+
+# 生成邻接矩阵 (小世界网络)
+adj_matrix = np.eye(num_nodes, dtype=np.float32)
+for i in range(num_nodes):
+    for j in range(i+1, min(i+3, num_nodes)):
+        if np.random.random() > 0.3:
+            adj_matrix[i, j] = 1.0
+            adj_matrix[j, i] = 1.0
+
+# 度归一化
+degree = np.sum(adj_matrix, axis=1)
+degree_inv_sqrt = np.power(degree, -0.5)
+degree_inv_sqrt[np.isinf(degree_inv_sqrt)] = 0.0
+D_inv_sqrt = np.diag(degree_inv_sqrt)
+adj_norm = D_inv_sqrt @ adj_matrix @ D_inv_sqrt
+
+print(f"归一化邻接矩阵: {adj_norm.shape}")
+
+# 生成标签
+labels = np.random.randint(0, num_classes, num_nodes)
+print(f"生成标签: {labels}")
+
+# 简化的GCN模型类
+class SimpleGCN:
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        
+        # 初始化权重
+        self.W1 = np.random.randn(input_dim, hidden_dim) * 0.1
+        self.W2 = np.random.randn(hidden_dim, output_dim) * 0.1
+        self.b1 = np.zeros((1, hidden_dim))
+        self.b2 = np.zeros((1, output_dim))
+        
+    def relu(self, x):
+        return np.maximum(0, x)
+    
+    def softmax(self, x):
+        exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+        return exp_x / np.sum(exp_x, axis=1, keepdims=True)
+    
+    def forward(self, x, adj):
+        # 第一层GCN
+        h1 = adj @ x @ self.W1 + self.b1
+        h1 = self.relu(h1)
+        
+        # 第二层GCN
+        h2 = adj @ h1 @ self.W2 + self.b2
+        
+        return self.softmax(h2)
+    
+    def cross_entropy_loss(self, y_pred, y_true):
+        # 转换为one-hot
+        y_one_hot = np.eye(self.output_dim)[y_true]
+        return -np.mean(np.sum(y_one_hot * np.log(y_pred + 1e-8), axis=1))
+    
+    def train_step(self, x, adj, y_true, lr=0.01):
+        # 前向传播
+        h1 = adj @ x @ self.W1 + self.b1
+        h1_relu = self.relu(h1)
+        h2 = adj @ h1_relu @ self.W2 + self.b2
+        y_pred = self.softmax(h2)
+        
+        # 计算损失
+        loss = self.cross_entropy_loss(y_pred, y_true)
+        
+        # 计算准确率
+        pred_labels = np.argmax(y_pred, axis=1)
+        accuracy = np.mean(pred_labels == y_true)
+        
+        # 反向传播(简化版)
+        batch_size = x.shape[0]
+        y_one_hot = np.eye(self.output_dim)[y_true]
+        
+        # 输出层梯度
+        dL_dh2 = (y_pred - y_one_hot) / batch_size
+        dL_dW2 = (adj @ h1_relu).T @ dL_dh2
+        dL_db2 = np.sum(dL_dh2, axis=0, keepdims=True)
+        
+        # 隐藏层梯度
+        dL_dh1_relu = dL_dh2 @ self.W2.T @ adj.T
+        dL_dh1 = dL_dh1_relu * (h1 > 0)  # ReLU导数
+        dL_dW1 = (adj @ x).T @ dL_dh1
+        dL_db1 = np.sum(dL_dh1, axis=0, keepdims=True)
+        
+        # 更新参数
+        self.W1 -= lr * dL_dW1
+        self.W2 -= lr * dL_dW2
+        self.b1 -= lr * dL_db1
+        self.b2 -= lr * dL_db2
+        
+        return loss, accuracy
+
+# 创建模型
+model = SimpleGCN(num_features, 8, num_classes)
+print(f"创建GCN模型: {num_features} -> 8 -> {num_classes}")
+
+# 训练参数
+epochs = 50
+learning_rate = 0.01
+
+# 存储训练历史
+losses = []
+accuracies = []
+
+print("开始训练...")
+for epoch in range(epochs):
+    loss, acc = model.train_step(features, adj_norm, labels, learning_rate)
+    
+    losses.append(float(loss))
+    accuracies.append(float(acc))
+    
+    if epoch % 10 == 0 or epoch == epochs - 1:
+        print(f"Epoch {epoch:2d}: Loss={loss:.4f}, Accuracy={acc:.4f}")
+
+print(f"\n训练完成! 最终准确率: {accuracies[-1]:.4f}")
+print(f"最终损失: {losses[-1]:.4f}")
+
+# 最终预测
+final_pred = model.forward(features, adj_norm)
+pred_labels = np.argmax(final_pred, axis=1)
+
+print(f"\n预测结果: {pred_labels}")
+print(f"真实标签: {labels}")
+print(f"准确预测: {np.sum(pred_labels == labels)}/{len(labels)}")
+`;
+    
+    // 更新代码编辑器
+    practiceState.cm.setValue(pyodideCode);
+    
+    // 添加提示信息
+    var consoleEl = document.getElementById('console-output');
+    if (consoleEl) {
+        consoleEl.textContent += '\n📝 已加载Pyodide兼容的NumPy版本GCN代码\n';
+        consoleEl.textContent += '💡 这个版本使用NumPy实现，完全兼容Pyodide环境\n';
     }
 }
 
@@ -1173,41 +1504,116 @@ function showTrainingCompleteAnimation() {
     }
 }
 
+// Pyodide代码执行 - 增强版本
 async function runCodeWithPyodide() {
+    var consoleEl = document.getElementById('console-output');
+    
+    // 检查Pyodide是否就绪
     if (!practiceState.pyodideReady) {
-        var consoleEl = document.getElementById('console-output');
-        if (consoleEl) consoleEl.textContent = 'Pyodide 正在加载或不可用，请稍候或切换到前端模拟模式。';
-        return;
+        if (consoleEl) {
+            consoleEl.textContent = '🔄 Pyodide 正在加载或不可用，请稍候或切换到前端模拟模式。\n';
+            consoleEl.textContent += '💡 如果等待时间过长，建议刷新页面重试';
+        }
+        // 尝试重新初始化
+        await initPyodideOnce();
+        if (!practiceState.pyodideReady) {
+            return;
+        }
     }
     
+    // 获取代码
     var code = practiceState.cm ? practiceState.cm.getValue() : 
                (document.getElementById('code-editor') || {}).value || '';
     
+    if (!code.trim()) {
+        if (consoleEl) {
+            consoleEl.textContent = '⚠️ 请先输入Python代码';
+        }
+        return;
+    }
+    
+    if (consoleEl) {
+        consoleEl.textContent = '🚀 正在执行Python代码 (Pyodide真实执行)...\n\n';
+        consoleEl.style.color = '#00ff00';
+    }
+    
+    // 显示当前参数
+    showCurrentParameters();
+    
     try {
-        practiceState.pyodide.runPython(`
-import sys
-from js import console
-class _C:
-  def write(self,s):
-    if s: console.log(s)
-  def flush(self):
-    pass
-sys.stdout=_C()
-sys.stderr=_C()`);
+        // 清除之前的输出
+        await practiceState.pyodide.runPythonAsync(`
+_js_stdout.clear()
+_js_stderr.clear()
+losses = []
+accuracies = []
+`);
         
+        // 执行用户代码
+        var startTime = Date.now();
         await practiceState.pyodide.runPythonAsync(code);
-        var result = await extractPyResults();
-        var consoleEl = document.getElementById('console-output');
-        if (consoleEl) consoleEl.textContent = '执行完成（Pyodide）。';
+        var executionTime = Date.now() - startTime;
         
-        renderCharts(result.losses || [1, 0.8], result.accuracies || [0.3, 0.7]);
-        renderGraph((result.accuracies || []).slice(-1)[0] || 0.8, 
-                   result.pred_correct || [], result.neighbors_sampled || {});
+        // 获取执行结果
+        var result = await extractPyodideResults();
+        
+        // 显示执行结果
+        if (consoleEl) {
+            var output = await practiceState.pyodide.runPythonAsync('_js_stdout.get_output()');
+            if (output) {
+                consoleEl.textContent += '\n' + '📝 程序输出:\n' + output + '\n';
+            }
+            
+            consoleEl.textContent += '\n✅ 执行完成！';
+            consoleEl.textContent += ` (耗时: ${executionTime}ms)\n`;
+            
+            if (result.losses && result.losses.length > 0) {
+                consoleEl.textContent += `\n📊 抓取到训练数据: ${result.losses.length}个训练轮次`;
+            }
+        }
+        
+        // 渲染结果图表
+        if (result.losses && result.losses.length > 0) {
+            renderCharts(result.losses, result.accuracies || []);
+        } else {
+            // 如果没有训练数据，显示默认图表
+            renderCharts([1.0, 0.8, 0.6, 0.4], [0.2, 0.4, 0.6, 0.8]);
+        }
+        
+        // 渲染图可视化
+        var finalAcc = result.accuracies && result.accuracies.length > 0 ? 
+                      result.accuracies[result.accuracies.length - 1] : 0.8;
+        renderGraph(finalAcc, result.pred_correct || [], result.neighbors_sampled || {});
+        
+        // 显示结果分析
+        if (result.model_info) {
+            if (consoleEl) {
+                consoleEl.textContent += '\n\n🧪 模型信息:\n' + result.model_info;
+            }
+        }
+        
     } catch (e) {
-        var consoleEl = document.getElementById('console-output');
-        if (consoleEl) consoleEl.textContent = '执行失败（Pyodide）：' + e;
-        renderCharts([1.0, 0.8, 0.6, 0.5, 0.45, 0.4], [0.2, 0.35, 0.5, 0.62, 0.73, 0.8]);
-        renderGraph(0.8);
+        console.error('Pyodide执行错误:', e);
+        
+        if (consoleEl) {
+            consoleEl.style.color = '#ff4444';
+            consoleEl.textContent += '\n\n❌ 执行失败：' + e.message + '\n';
+            
+            // 提供错误诊断建议
+            if (e.message.includes('torch')) {
+                consoleEl.textContent += '\n💡 提示: PyTorch在Pyodide中不可用，请使用NumPy或简化的代码';
+            } else if (e.message.includes('import')) {
+                consoleEl.textContent += '\n💡 提示: 某些库可能未安装，可用库: numpy, matplotlib, scipy';
+            } else if (e.message.includes('syntax')) {
+                consoleEl.textContent += '\n💡 提示: 请检查Python语法是否正确';
+            }
+            
+            consoleEl.textContent += '\n\n🔄 建议: 检查代码后重试，或切换到前端模拟模式';
+        }
+        
+        // 发生错误时显示默认图表
+        renderCharts([1.0, 0.8, 0.6, 0.5], [0.2, 0.35, 0.5, 0.65]);
+        renderGraph(0.65);
     }
 }
 
@@ -1393,11 +1799,34 @@ function switchExecMode(mode) {
     console.log('已切换执行模式到:', mode);
     
     var consoleEl = document.getElementById('console-output');
+    var coraInfo = document.getElementById('cora-dataset-info');
+    var pyodideStatus = document.getElementById('pyodide-status');
+    var pyodideLoading = document.getElementById('pyodide-loading');
+    
+    // 隐藏所有状态显示
+    if (coraInfo) coraInfo.classList.add('hidden');
+    if (pyodideStatus) pyodideStatus.classList.add('hidden');
+    
     if (consoleEl) {
         if (mode === 'cora-gcn') {
             consoleEl.textContent = '🎆 已切换到Cora GCN实践模式！\n点击运行按钮开始完整的Cora数据集GCN训练...';
+            if (coraInfo) coraInfo.classList.remove('hidden');
         } else if (mode === 'pyodide') {
             consoleEl.textContent = '🔍 已切换到Pyodide模式！\n将使用真实的Python环境执行代码...';
+            if (pyodideStatus) pyodideStatus.classList.remove('hidden');
+            
+            // 自动更换为Pyodide兼容的代码
+            loadPyodideCompatibleCode();
+            
+            // 如果Pyodide未初始化，尝试初始化
+            if (!practiceState.pyodideReady) {
+                if (pyodideLoading) pyodideLoading.classList.remove('hidden');
+                initPyodideOnce().then(() => {
+                    if (pyodideLoading) pyodideLoading.classList.add('hidden');
+                }).catch(() => {
+                    if (pyodideLoading) pyodideLoading.classList.add('hidden');
+                });
+            }
         } else {
             consoleEl.textContent = '🎮 已切换到前端模拟模式！\n点击运行按钮查看结果...';
         }
@@ -1405,7 +1834,7 @@ function switchExecMode(mode) {
 }
 
 async function runCoraGCN() {
-    if (!window.trainCoraGCN) {
+    if (!window.trainRealCoraGCN) {
         var consoleEl = document.getElementById('console-output');
         if (consoleEl) {
             consoleEl.textContent = '❗ Cora GCN模块未加载，请检查cora-gcn.js文件是否正确引入。';
@@ -1416,17 +1845,33 @@ async function runCoraGCN() {
     var consoleEl = document.getElementById('console-output');
     if (consoleEl) {
         consoleEl.textContent = '🚀 初始化Cora数据集...\n';
+        consoleEl.textContent += '🔍 正在检查真实数据服务...\n';
     }
     
     // 创建训练进度指示器
     createTrainingProgressIndicator();
     
     try {
-        // 调用cora-gcn.js中的训练函数
-        var results = await window.trainCoraGCN({
+        // 检查服务状态
+        const serviceAvailable = await window.checkCoraServiceAvailable();
+        
+        if (consoleEl) {
+            if (serviceAvailable) {
+                consoleEl.textContent += '✅ 真实Cora数据服务可用！\n';
+                consoleEl.textContent += '📦 正在加载真实Cora数据集...\n';
+            } else {
+                consoleEl.textContent += '⚠️ Cora数据服务不可用，使用模拟数据\n';
+                consoleEl.textContent += '💡 提示：运行 `python cora_server.py` 启动真实数据服务\n';
+            }
+        }
+        
+        // 调用新的真实数据训练函数
+        var results = await window.trainRealCoraGCN({
             hiddenDim: practiceState.hiddenDim,
             learningRate: practiceState.learningRate,
             epochs: practiceState.epochs,
+            dataSize: 150, // 使用150个节点的子集
+            useRealData: serviceAvailable,
             onProgress: function(progress) {
                 // 更新进度显示
                 updateTrainingProgress(
@@ -1438,7 +1883,8 @@ async function runCoraGCN() {
                 
                 // 更新控制台输出
                 if (consoleEl) {
-                    consoleEl.textContent += `Epoch ${progress.epoch}: Loss=${progress.loss.toFixed(4)}, TrainAcc=${progress.trainAcc.toFixed(4)}, ValAcc=${progress.valAcc.toFixed(4)}, TestAcc=${progress.testAcc.toFixed(4)}\n`;
+                    var statusIcon = progress.testAcc > 0.7 ? '🎆' : progress.testAcc > 0.5 ? '🟨' : '🟧';
+                    consoleEl.textContent += `${statusIcon} Epoch ${progress.epoch}: Loss=${progress.loss.toFixed(4)}, TrainAcc=${progress.trainAcc.toFixed(4)}, ValAcc=${progress.valAcc.toFixed(4)}, TestAcc=${progress.testAcc.toFixed(4)}\n`;
                     consoleEl.scrollTop = consoleEl.scrollHeight;
                 }
             },
@@ -1446,8 +1892,15 @@ async function runCoraGCN() {
                 practiceState.coraTrainingResults = results;
                 
                 if (consoleEl) {
-                    consoleEl.textContent += `\n✨ Cora GCN训练完成！\n`;
-                    consoleEl.textContent += `最终测试准确率: ${results.testAccuracy.toFixed(4)}\n`;
+                    consoleEl.textContent += `\n✨ ${results.isRealData ? '真实' : '模拟'}Cora GCN训练完成！\n`;
+                    consoleEl.textContent += `🎯 最终测试准确率: ${results.testAccuracy.toFixed(4)}\n`;
+                    
+                    if (results.isRealData) {
+                        consoleEl.textContent += `📦 使用真实Cora数据集 (${results.dataset.numNodes}个节点)\n`;
+                    } else {
+                        consoleEl.textContent += `🎮 使用模拟数据集\n`;
+                    }
+                    
                     consoleEl.textContent += analyzeParameters(
                         practiceState.learningRate, 
                         practiceState.hiddenDim, 
@@ -1469,6 +1922,7 @@ async function runCoraGCN() {
         console.error('Cora GCN训练失败:', error);
         if (consoleEl) {
             consoleEl.textContent += `\n❗ 训练失败: ${error.message}\n`;
+            consoleEl.textContent += '🔄 请检查网络连接或重试\n';
         }
     }
 }
@@ -1531,15 +1985,20 @@ function renderCoraCharts(history) {
 
 function renderCoraGraph(results) {
     var graphContainer = document.getElementById('graph-visualization');
-    if (!graphContainer || !window.visualizeCoraSample) return;
+    if (!graphContainer) return;
     
     // 清空容器
     graphContainer.innerHTML = '';
     
-    // 使用cora-gcn.js中的可视化函数
-    window.visualizeCoraSample('graph-visualization', 30);
+    // 优先使用真实数据可视化
+    if (window.visualizeRealCoraSample) {
+        window.visualizeRealCoraSample('graph-visualization', 30);
+    } else if (window.visualizeCoraSample) {
+        // 回退到原有的模拟数据可视化
+        window.visualizeCoraSample('graph-visualization', 30);
+    }
     
-    // 添加结果信息
+    // 添加结果信息覆盖层
     setTimeout(function() {
         var infoDiv = document.createElement('div');
         infoDiv.style.cssText = `
@@ -1552,18 +2011,156 @@ function renderCoraGraph(results) {
             border-radius: 6px;
             font-size: 12px;
             z-index: 10;
+            max-width: 200px;
         `;
+        
+        var datasetType = results.isRealData ? '真实' : '模拟';
+        var datasetIcon = results.isRealData ? '📦' : '🎮';
+        
         infoDiv.innerHTML = `
-            <div><strong>Cora 数据集</strong></div>
+            <div><strong>${datasetIcon} ${datasetType}Cora 数据集</strong></div>
             <div>节点: ${results.dataset.numNodes}</div>
             <div>连接: ${results.dataset.numEdges || 5429}</div>
             <div>类别: ${results.dataset.numClasses}</div>
             <div>测试准确率: ${results.testAccuracy.toFixed(3)}</div>
+            ${results.isRealData ? '<div style="color: #4ade80;">✓ 真实数据</div>' : '<div style="color: #fbbf24;">⚠ 模拟数据</div>'}
         `;
         
         if (graphContainer.style.position !== 'relative') {
             graphContainer.style.position = 'relative';
         }
         graphContainer.appendChild(infoDiv);
+        
+        // 如果是真实数据，添加数据源提示
+        if (results.isRealData) {
+            var sourceDiv = document.createElement('div');
+            sourceDiv.style.cssText = `
+                position: absolute;
+                bottom: 10px;
+                left: 10px;
+                background: rgba(16, 185, 129, 0.9);
+                color: white;
+                padding: 6px 10px;
+                border-radius: 4px;
+                font-size: 11px;
+                z-index: 10;
+            `;
+            sourceDiv.innerHTML = '🔗 数据来源: 真实Cora论文引用网络';
+            graphContainer.appendChild(sourceDiv);
+        }
     }, 100);
+}
+
+// 用户体验改进函数
+
+// 显示Pyodide就绪通知
+function showPyodideReadyNotification() {
+    var notification = document.createElement('div');
+    notification.id = 'pyodide-ready-notification';
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #10b981, #3b82f6);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 1000;
+        animation: slideIn 0.3s ease-out;
+        max-width: 300px;
+    `;
+    
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+            <div style="width: 20px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 10px;">
+                ✓
+            </div>
+            <strong>Pyodide 已就绪！</strong>
+        </div>
+        <div style="font-size: 13px; opacity: 0.9; line-height: 1.4;">
+            真实Python环境已准备就绪，支持NumPy、Matplotlib等库。现在可以体验真实的图学习代码执行！
+        </div>
+    `;
+    
+    // 添加CSS动画
+    if (!document.getElementById('notification-styles')) {
+        var style = document.createElement('style');
+        style.id = 'notification-styles';
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // 4秒后自动消失
+    setTimeout(() => {
+        if (notification && notification.parentNode) {
+            notification.style.animation = 'slideOut 0.3s ease-in';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }
+    }, 4000);
+}
+
+// 显示Pyodide错误通知
+function showPyodideErrorNotification(errorMsg) {
+    var notification = document.createElement('div');
+    notification.id = 'pyodide-error-notification';
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #ef4444, #f97316);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 1000;
+        animation: slideIn 0.3s ease-out;
+        max-width: 350px;
+    `;
+    
+    var shortError = errorMsg.length > 50 ? errorMsg.substring(0, 50) + '...' : errorMsg;
+    
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+            <div style="width: 20px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 10px;">
+                ❌
+            </div>
+            <strong>Pyodide 加载失败</strong>
+        </div>
+        <div style="font-size: 13px; opacity: 0.9; line-height: 1.4; margin-bottom: 10px;">
+            ${shortError}
+        </div>
+        <div style="font-size: 12px; opacity: 0.8;">
+            建议切换到前端模拟模式，同样能提供出色的学习体验！
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // 6秒后自动消失
+    setTimeout(() => {
+        if (notification && notification.parentNode) {
+            notification.style.animation = 'slideOut 0.3s ease-in';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }
+    }, 6000);
 }

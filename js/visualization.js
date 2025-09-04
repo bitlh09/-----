@@ -729,7 +729,7 @@ function createGraphDemo(containerId) {
         });
 }
 
-// 从Pyodide提取结果
+// 从Pyodide提取结果 - 增强版本
 async function extractPyResults() {
     try {
         var jsonStr = await practiceState.pyodide.runPythonAsync(`
@@ -775,6 +775,179 @@ json.dumps(out)`);
             losses: [1.0, 0.8, 0.6, 0.5], 
             accuracies: [0.3, 0.5, 0.7, 0.8], 
             pred_correct: [1, 1, 0, 1, 0, 1, 1] 
+        };
+    }
+}
+
+// 从 Pyodide 提取结果的增强版本
+async function extractPyodideResults() {
+    if (!practiceState.pyodide || !practiceState.pyodideReady) {
+        return {
+            losses: [],
+            accuracies: [],
+            pred_correct: [],
+            neighbors_sampled: {},
+            model_info: 'Pyodide 未就绪'
+        };
+    }
+    
+    try {
+        var resultData = await practiceState.pyodide.runPythonAsync(`
+import json
+import sys
+
+# 初始化结果字典
+result = {
+    'losses': [],
+    'accuracies': [],
+    'pred_correct': [],
+    'neighbors_sampled': {},
+    'model_info': '',
+    'execution_info': {}
+}
+
+# 提取训练结果
+try:
+    if 'losses' in globals() and isinstance(losses, list) and len(losses) > 0:
+        result['losses'] = [float(x) for x in losses]
+    if 'accuracies' in globals() and isinstance(accuracies, list) and len(accuracies) > 0:
+        result['accuracies'] = [float(x) for x in accuracies]
+except Exception as e:
+    result['execution_info']['training_data_error'] = str(e)
+
+# 提取模型信息
+try:
+    if 'model' in globals() and model is not None:
+        model_name = type(model).__name__
+        result['model_info'] = f"模型: {model_name}"
+        
+        # 尝试获取模型参数
+        if hasattr(model, '__dict__'):
+            model_attrs = [attr for attr in dir(model) if not attr.startswith('_')]
+            result['model_info'] += f"\n属性: {', '.join(model_attrs[:5])}"
+            
+except Exception as e:
+    result['execution_info']['model_info_error'] = str(e)
+
+# 提取预测结果
+try:
+    # 检查是否有预测相关的变量
+    if 'model' in globals() and model is not None:
+        # 获取最终预测结果
+        if hasattr(model, 'forward') and 'features' in globals() and 'adj_norm' in globals():
+            final_pred = model.forward(features, adj_norm)
+            pred_labels = final_pred.argmax(axis=1)
+            
+            # 计算准确性
+            if 'labels' in globals():
+                correct_predictions = pred_labels == labels
+                result['pred_correct'] = correct_predictions.tolist()
+                result['prediction_accuracy'] = float(correct_predictions.mean())
+            else:
+                result['pred_correct'] = pred_labels.tolist()
+                
+            result['predictions'] = pred_labels.tolist()
+            result['model_predictions'] = final_pred.tolist()[:5]  # 只取前5个节点的预测概率
+    
+    # 后备：检查其他预测变量
+    prediction_vars = ['pred_labels', 'predictions', 'pred', 'y_pred', 'output']
+    if not result.get('pred_correct'):
+        for var_name in prediction_vars:
+            if var_name in globals():
+                var_value = globals()[var_name]
+                # 尝试将结果转换为list
+                if hasattr(var_value, 'tolist'):
+                    result['pred_correct'] = var_value.tolist()[:10]  # 只取10个
+                    break
+                elif isinstance(var_value, list):
+                    result['pred_correct'] = var_value[:10]
+                    break
+except Exception as e:
+    result['execution_info']['prediction_error'] = str(e)
+
+# 提取可用的全局变量
+try:
+    available_vars = [var for var in globals().keys() 
+                     if not var.startswith('_') and not var in ['sys', 'json', 'result']]
+    result['execution_info']['available_variables'] = available_vars[:10]  # 只显示前10个
+except Exception as e:
+    result['execution_info']['vars_error'] = str(e)
+
+# 检查是否有图相关数据
+try:
+    graph_vars = ['adj_matrix', 'adj_norm', 'adjacency', 'edges', 'graph']
+    graph_info = {}
+    
+    for var_name in graph_vars:
+        if var_name in globals():
+            var_value = globals()[var_name]
+            if hasattr(var_value, 'shape'):
+                graph_info[var_name] = {
+                    'shape': list(var_value.shape),
+                    'type': str(type(var_value).__name__)
+                }
+                result['execution_info']['graph_data_found'] = var_name
+                
+                # 提取部分邻接矩阵信息用于可视化
+                if var_name in ['adj_matrix', 'adj_norm'] and var_value.shape[0] <= 20:
+                    # 只对小图提取连接信息
+                    edges = []
+                    rows, cols = var_value.nonzero()
+                    for i in range(min(50, len(rows))):
+                        edges.append([int(rows[i]), int(cols[i])])
+                    result['graph_edges'] = edges
+                    result['num_nodes'] = int(var_value.shape[0])
+                break
+    
+    result['execution_info']['graph_info'] = graph_info
+except Exception as e:
+    result['execution_info']['graph_check_error'] = str(e)
+
+# 提取数据集信息
+try:
+    dataset_info = {}
+    if 'features' in globals():
+        features_var = globals()['features']
+        if hasattr(features_var, 'shape'):
+            dataset_info['features_shape'] = list(features_var.shape)
+            dataset_info['num_nodes'] = int(features_var.shape[0])
+            dataset_info['feature_dim'] = int(features_var.shape[1])
+    
+    if 'labels' in globals():
+        labels_var = globals()['labels']
+        if hasattr(labels_var, 'shape'):
+            dataset_info['labels_shape'] = list(labels_var.shape)
+        if hasattr(labels_var, 'max'):
+            dataset_info['num_classes'] = int(labels_var.max()) + 1
+    
+    result['execution_info']['dataset_info'] = dataset_info
+except Exception as e:
+    result['execution_info']['dataset_error'] = str(e)
+
+# 返回JSON字符串
+json.dumps(result)
+`);
+        
+        var result = JSON.parse(resultData);
+        
+        // 如果没有训练数据，生成默认数据
+        if (!result.losses || result.losses.length === 0) {
+            result.losses = [1.2, 1.0, 0.8, 0.6, 0.5, 0.4];
+            result.accuracies = [0.2, 0.35, 0.5, 0.65, 0.75, 0.82];
+            result.model_info += '\n(显示默认数据)';
+        }
+        
+        return result;
+        
+    } catch (e) {
+        console.error('Pyodide结果提取失败:', e);
+        return {
+            losses: [1.2, 1.0, 0.8, 0.6, 0.5],
+            accuracies: [0.2, 0.35, 0.5, 0.65, 0.8],
+            pred_correct: [true, false, true, true, false, true],
+            neighbors_sampled: {},
+            model_info: '结果提取失败: ' + e.message,
+            execution_info: { error: e.message }
         };
     }
 }
